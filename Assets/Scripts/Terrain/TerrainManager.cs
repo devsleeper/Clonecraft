@@ -162,12 +162,22 @@ namespace Minecraft
 
         private async Task GenerateChunks(IEnumerable<Vector3Int> chunksToCreate)
         {
-            foreach (var chunkIndex in chunksToCreate)
+            var chunkIndices = chunksToCreate as Vector3Int[] ?? chunksToCreate.ToArray();
+            
+            // Separate stages so chunk meshing has neighbor data
+            
+            // 1. Data stage
+            foreach (var chunkIndex in chunkIndices)
             {
                 var newChunk = _chunkGenerator.InstantiateAndSetup(chunkIndex, transform);
                 terrainGenerator.GenerateBlocksFor(newChunk);
-                // TODO: Neighbour chunks
-                chunkMesher.GenerateMeshFor(newChunk);
+            }
+            
+            // 2. Meshing stage
+            foreach (var chunkIndex in chunkIndices)
+            {
+                var createdChunk = chunksPool.GetChunk(chunkIndex);
+                chunkMesher.GenerateMeshFor(createdChunk);
                 await Task.Yield();
             }
         }
@@ -249,6 +259,13 @@ namespace Minecraft
                 pointInWorld.y / config.chunkSize.y,
                 pointInWorld.z / config.chunkSize.z
             ));
+        }
+        
+        public bool TryGetChunkAt(Vector3 worldPos, out TerrainChunk chunk)
+        {
+            var chunkIndex = Instance.GetChunkIndexAt(worldPos);
+            chunk = chunksPool.GetChunk(chunkIndex);
+            return chunk != null;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

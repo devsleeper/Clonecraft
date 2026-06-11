@@ -14,6 +14,8 @@ namespace Minecraft
         public Mesh.MeshData mesh;
 
         [ReadOnly] public NativeArray<TerrainBlock> voxels;
+        [ReadOnly] public NativeHashMap<int3, TerrainBlock> shell;
+        
         [ReadOnly] public int3 chunkSize;
         [ReadOnly] public float blockSize;
 
@@ -27,17 +29,33 @@ namespace Minecraft
             WEST = 3,
             TOP = 4,
             BOTTOM = 5;
-
-
+        
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private VoxelType GetVoxel(int3 pos)
+        private VoxelType GetVoxel(int3 arrayPos, bool includeNeighborChunk = true)
         {
-            // TODO: Check for blocks in neighbor chunk
+            // 1. Check within local bounds 
+            bool isLocal = arrayPos.x >= 0 && arrayPos.x < chunkSize.x &&
+                           arrayPos.y >= 0 && arrayPos.y < chunkSize.y &&
+                           arrayPos.z >= 0 && arrayPos.z < chunkSize.x;
+            
+            if (isLocal)
+            {
+                int flatIndex = MathUtils.To1D(arrayPos.x, arrayPos.y, arrayPos.z, chunkSize.x, chunkSize.y);
+                return voxels[flatIndex].type;
+            }
 
-            return voxels[MathUtils.To1D(pos.x, pos.y, pos.z, chunkSize.x, chunkSize.y)].type;
+            // 2. Check Shell (neighboring outside chunk)
+            if (includeNeighborChunk && shell.TryGetValue(arrayPos, out TerrainBlock neighbor))
+            {
+                return neighbor.type;
+            }
+
+            // 3. Default to air
+            return VoxelType.Air;
         }
-
-        /// <summary>
+        
+        
         /// * Mostly based on a Greedy Meshing algorithm by Mikola Lysenko and code based on Cleo McCoy (formely Rob O'Leary)
         /// </summary>
         public void Execute()
@@ -45,8 +63,7 @@ namespace Minecraft
             var estimateVertices = chunkSize.x * chunkSize.y * chunkSize.z * 4;
             var estimateIndexes = chunkSize.x * chunkSize.y * chunkSize.z * 6;
 
-            NativeArray<VertexAttributeDescriptor> attributes = new(3, Allocator.Temp,
-                NativeArrayOptions.UninitializedMemory);
+            NativeArray<VertexAttributeDescriptor> attributes = new(3, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             attributes[0] = new VertexAttributeDescriptor(VertexAttribute.Position);
             attributes[1] = new VertexAttributeDescriptor(VertexAttribute.Normal, stream: 1);
             attributes[2] = new VertexAttributeDescriptor(VertexAttribute.TexCoord0, dimension: 3, stream: 2);
@@ -86,8 +103,8 @@ namespace Minecraft
                             // q determines the direction (X, Y or Z) that we are searching
                             int min = 0; //q.y != 0 ? 0 : -1;
                             int max = chunkSize[d] - 1; //q.y != 0 ? chunkSize[d] - 1 : chunkSize[d]; 
-                            var blockCurrent = (x[d] >= min) ? GetVoxel(x) : default;
-                            var blockCompare = (x[d] < max) ? GetVoxel(x + q) : default;
+                            var blockCurrent =  GetVoxel(x);
+                            var blockCompare =  GetVoxel(x + q);
 
                             bool bCurrentOpaque = blockCurrent != default;
                             bool bCompareOpaque = blockCompare != default;
